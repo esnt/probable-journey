@@ -19,14 +19,61 @@ st.set_page_config(
 # ------------------------
 # Loaders (no path inputs; expects data in NameData/)
 # ------------------------
-DATA_DIR = Path("NameData")
-STATE_ZIP = DATA_DIR / "namesbystate.zip"
+
+STATE_ZIP_CANDIDATES = ["NameData/namesbystate.zip", "namesbystate.zip", "data/namesbystate.zip"]
+
+def find_state_zip() -> Path | None:
+    # 1) try common locations
+    for p in STATE_ZIP_CANDIDATES:
+        path = Path(p)
+        if path.exists():
+            return path.resolve()
+    # 2) search the repo recursively (first match wins)
+    for path in Path(".").rglob("namesbystate.zip"):
+        return path.resolve()
+    return None
+
+def validate_zip(path: Path) -> tuple[bool, str]:
+    if not path.exists():
+        return False, "File does not exist."
+    # LFS pointer files are tiny and not a real zip
+    if path.stat().st_size < 10_000:  # SSA zip is ~ several MB; pointers are ~100 bytes
+        return False, f"File is suspiciously small ({path.stat().st_size} bytes). Is this a Git LFS pointer?"
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            # SSA state files should include many UPPERCASE .TXT like 'CA.TXT'
+            names = z.namelist()
+            if not names:
+                return False, "Zip is empty."
+            if not any(n.endswith(".TXT") for n in names):
+                return False, "Zip contents don't look like SSA state files (.TXT not found)."
+            # OK
+            sample = ", ".join(names[:3])
+            return True, f"Zip OK. Found {len(names)} files. Sample: {sample}"
+    except zipfile.BadZipFile:
+        return False, "Not a valid ZIP file (BadZipFile)."
+    except Exception as e:
+        return False, f"Error opening zip: {e}"
+
+STATE_ZIP_PATH = find_state_zip()
+ok_msg = "not found"
+if STATE_ZIP_PATH is None:
+    st.error("Couldn't locate `namesbystate.zip` anywhere in the repo.\n"
+             "Place it under `NameData/` (recommended) or at repo root.\n"
+             "Alternatively, adjust the search list in `STATE_ZIP_CANDIDATES`.")
+    st.stop()
+else:
+    ok, msg = validate_zip(STATE_ZIP_PATH)
+    with st.expander("State ZIP health check", expanded=False):
+        st.write("CWD:", Path.cwd())
+        st.write("Resolved path:", str(STATE_ZIP_PATH))
+        st.write(msg)
+    if not ok:
+        st.error(f"`{STATE_ZIP_PATH.name}` failed validation: {msg}")
+        st.stop()
 
 @st.cache_data(show_spinner=False)
-def load_state_data(zip_path=STATE_ZIP):
-    zip_path = Path(zip_path)
-    if not zip_path.exists():
-        return None
+def load_state_data(zip_path=STATE_ZIP_PATH):
     with zipfile.ZipFile(zip_path, "r") as z:
         dfs = []
         files = [f for f in z.namelist() if f.endswith(".TXT")]
@@ -34,9 +81,13 @@ def load_state_data(zip_path=STATE_ZIP):
             with z.open(file) as f:
                 df = pd.read_csv(f, header=None, names=['state','sex','year','name','count'])
                 dfs.append(df)
-        state_data = pd.concat(dfs, ignore_index=True)
+    state_data = pd.concat(dfs, ignore_index=True)
     state_data["state"] = state_data["state"].str.upper()
     return state_data
+
+st_df = load_state_data()
+nat_df = (st_df.groupby(["name","sex","year"], as_index=False)["count"].sum())
+nat_df["pct"] = nat_df["count"] / nat_df.groupby(["year","sex"])["count"].transform("sum")
 
 def aggregate_national_from_state(state_df: pd.DataFrame) -> pd.DataFrame:
     nat = (state_df.groupby(["name","sex","year"], as_index=False)["count"].sum())
