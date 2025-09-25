@@ -104,9 +104,9 @@ st.divider()
 # ------------------------
 # Tabs (removed One-Hit Wonders; added Gendered & Geo Name Map)
 # ------------------------
-tab1, tab5, tab7, tab2, tab6, tab3, = st.tabs([
+tab1, tab5, tab7, tab2, tab6 = st.tabs([
     "Name Trends", "Geographical Trends", "Gendered Names",
-    "Compare Names", "First Letters", "Diversity"
+    "Compare Names", "First Letters"
 ])
 
 # ------------------------
@@ -238,42 +238,7 @@ with tab2:
     ],
     key="t2_prompts",
     )
-# ------------------------
-# Tab 3: Diversity & Concentration
-# ------------------------
-with tab3:
-    st.subheader("How concentrated are names? How diverse?")
-    df = add_per_10k(nat_df.copy())
 
-    unique_names = (df.groupby(["year","sex"])["name"]
-                      .nunique()
-                      .rename("unique_names")
-                      .reset_index())
-    fig1 = px.line(unique_names, x="year", y="unique_names", color="sex",
-                   title="Unique names per year", markers=True)
-    st.plotly_chart(fig1, use_container_width=True)
-
-    k = st.slider("Top‑K for cumulative share", 5, 100, 10, step=5)
-    ranks = compute_ranks(df)
-    topk = ranks[ranks["rank"] <= k]
-    topk_share = (topk.groupby(["year","sex"])["pct"].sum()
-                       .rename("topk_share")
-                       .reset_index())
-    fig2 = px.line(topk_share, x="year", y="topk_share", color="sex",
-                   title=f"Cumulative share of top {k} names", markers=True)
-    fig2.update_yaxes(tickformat=".0%")
-    st.plotly_chart(fig2, use_container_width=True)
-
-    thinking_prompts(
-    "Digging Deeper",
-    [
-        "Is name diversity increasing over time for both sexes?",
-        "How sensitive is the top-K share to the choice of K?",
-        "Do dips/spikes align with historical periods (e.g., wars, media eras)?",
-        "Could changes be driven by population size or by broader naming norms?"
-    ],
-    key="t3_prompts",
-    )
 
 # ------------------------
 # Tab 5: Geo: Name Map — choropleth & animation + logging
